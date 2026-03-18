@@ -7,7 +7,7 @@ import type {
 } from '@run-iq/context-engine';
 import { sha256 } from '@run-iq/context-engine';
 import { RuleNotFoundError, RuleTransitionError } from '@run-iq/context-engine';
-import { RuleConflictBlockerError, RulePermissionError } from './errors.js';
+import { RuleConflictBlockerError, RulePermissionError, RuleStaleError } from './errors.js';
 import type { RuleValidator } from './RuleValidator.js';
 import type { ConflictDetector } from './ConflictDetector.js';
 import type { AuditLogger } from './AuditLogger.js';
@@ -143,6 +143,7 @@ export class RuleManager {
       await this.config.validator.validatePayload(merged);
     }
 
+    await this.ensureNotStale(ruleId, version, existing.updatedAt);
     const updated = await this.config.store.saveRule(merged);
 
     await this.logAudit({
@@ -198,6 +199,7 @@ export class RuleManager {
       );
     }
 
+    await this.ensureNotStale(ruleId, version, rule.updatedAt);
     const updated = await this.config.store.updateRuleStatus(ruleId, version, 'review', actor);
 
     await this.logAudit({
@@ -241,6 +243,7 @@ export class RuleManager {
     await this.config.permissions.check(actor, rule.tenantId, 'rule:review');
     this.enforceReviewerDifference(rule, actor);
 
+    await this.ensureNotStale(ruleId, version, rule.updatedAt);
     const updated = await this.config.store.updateRuleStatus(
       ruleId,
       version,
@@ -294,6 +297,7 @@ export class RuleManager {
       });
     }
 
+    await this.ensureNotStale(ruleId, version, rule.updatedAt);
     const result = await this.config.store.publishRule(ruleId, version, actor);
 
     await this.logAudit({
@@ -324,6 +328,7 @@ export class RuleManager {
 
     await this.config.permissions.check(actor, rule.tenantId, 'rule:deprecate');
 
+    await this.ensureNotStale(ruleId, version, rule.updatedAt);
     const updated = await this.config.store.updateRuleStatus(
       ruleId,
       version,
@@ -361,6 +366,7 @@ export class RuleManager {
 
     await this.config.permissions.check(actor, rule.tenantId, 'rule:archive');
 
+    await this.ensureNotStale(ruleId, version, rule.updatedAt);
     const updated = await this.config.store.updateRuleStatus(
       ruleId,
       version,
@@ -414,6 +420,22 @@ export class RuleManager {
   }
 
   // ─── Private helpers ─────────────────────────────────────────────────────
+
+  /**
+   * Optimistic lock: re-read the rule and verify it hasn't been modified since
+   * we first read it. Compares `updatedAt` timestamps.
+   */
+  private async ensureNotStale(
+    ruleId: string,
+    version: number,
+    expectedUpdatedAt: string,
+  ): Promise<void> {
+    const current = await this.config.store.getRule(ruleId, version);
+    if (!current) throw new RuleNotFoundError(`Rule "${ruleId}" v${version} no longer exists`);
+    if (current.updatedAt !== expectedUpdatedAt) {
+      throw new RuleStaleError(ruleId, version);
+    }
+  }
 
   private enforceReviewerDifference(rule: SerializedRule, actor: string): void {
     if (rule.createdBy === actor) {

@@ -38,6 +38,7 @@ export {
   RulePayloadError,
   RuleSandboxError,
   RegionNotFoundError,
+  RuleStaleError,
   type ValidationErrorItem,
   type ValidationWarning,
   type RuleValidationResult,

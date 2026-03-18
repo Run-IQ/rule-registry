@@ -91,3 +91,16 @@ export class RegionNotFoundError extends RegistryError {
     this.name = 'RegionNotFoundError';
   }
 }
+
+export class RuleStaleError extends RegistryError {
+  constructor(
+    public readonly ruleId: string,
+    public readonly version: number,
+  ) {
+    super(
+      `Rule "${ruleId}" v${version} was modified by another operation since it was read. ` +
+        `Re-read the rule and retry. This is an optimistic lock failure.`,
+    );
+    this.name = 'RuleStaleError';
+  }
+}
